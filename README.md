@@ -139,3 +139,48 @@ npx playwright test tests/api.spec.ts --project=chromium
 Result: **13 passed**. Two tests use `test.fail()` to document known bugs; they will turn red if the site fixes them.
 
 Requires `AE_EMAIL` and `AE_PASSWORD` in `.env` (see `.env.example`).
+
+## Day 6 – Performance Testing with JMeter
+
+### Setup
+- **Java 21** (Eclipse Temurin), installed with `winget install --id EclipseAdoptium.Temurin.21.JDK -e`. JMeter needs a 64-bit Java; the older Java 8 was left in place.
+- **Apache JMeter 5.6.3** (unzipped; no installer). Started with `bin\jmeter.bat`.
+- Test plan: `jmeter/products-load-test.jmx`
+
+### What the test plan does
+| Element | Setting |
+|---|---|
+| Thread Group "Products users" | 10 users, 3 loops each (ramp-up changed between runs) |
+| HTTP Request "GET productsList" | `GET https://automationexercise.com/api/productsList` |
+| Response Assertion | Body must contain `"responseCode": 200` (this API returns HTTP 200 even for errors, so the status alone proves nothing) |
+| Listeners | View Results Tree, Summary Report, Aggregate Report |
+
+The assertion was proved to work by temporarily expecting `404`: the result turned red with the custom failure message, while HTTP still said 200 OK.
+
+### How to run (non-GUI, recommended for real runs)
+```
+<JMeter folder>\bin\jmeter.bat -n -t jmeter\products-load-test.jmx -l jmeter\run.jtl -e -o jmeter\report "-Jjmeter.reportgenerator.overall_granularity=1000"
+```
+`-n` no GUI · `-t` test plan · `-l` raw results · `-e -o` HTML dashboard · `-J` 1-second chart buckets (the default is 1 minute, too coarse for short tests). Results and reports are git-ignored.
+
+### Results (30 requests per run, 2026-11-09)
+| | Run 1: 10 users, 10 s ramp-up | Run 2: 10 users, 1 s ramp-up |
+|---|---|---|
+| Peak active (concurrent) users | ~2.5 | 10 |
+| Median | 216 ms | 1042 ms |
+| 90th / 95th percentile | 521 / 1472 ms | 2203 / 2410 ms |
+| Min / Max | 166 / 1964 ms | 431 / 2463 ms |
+| Throughput | 3.1 req/s | 6.9 req/s |
+| Error % | 0% | 0% |
+| APDEX (default 0.5 s / 1.5 s) | 0.933 | 0.367 |
+
+**Finding:** the only change was how much the users overlapped. With ~10 concurrent users, the median was about 5× slower and APDEX dropped from "good" to "unacceptable", although every response was still correct. Observed in a single run on a shared public site with default thresholds, so it is a signal to repeat, not a proven capacity limit.
+
+### Key learnings
+- Smoke-test with 1 user first; one sample is an anecdote, not a measurement.
+- The first request pays a connection cost (DNS + TCP + TLS); later requests reuse the connection.
+- Median and percentiles beat the average, which outliers drag up; the 95th/99th percentile shows tail latency.
+- "10 users" is not "10 concurrent users": ramp-up, loops and think time decide the overlap. Little's Law: concurrent users ≈ throughput × (response time + think time).
+- Green only means HTTP 200; assert on the body.
+- Always check chart axes and bucket size before trusting a chart.
+- Load testing was kept tiny on purpose because this is a shared public site; stress testing (pushing past capacity) is only done on systems you own or have permission to test.
