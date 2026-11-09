@@ -109,3 +109,33 @@ So I automated what works and parked the rest:
 - Re-check automationintesting.online and un-skip the booking tests once the room API is fixed
 - Move shared helpers (`requireEnv`, ad blocking, login) into a `utils/` folder
 - Day 5: API testing
+ 
+ ---
+
+## Day 5 – API Testing (automationexercise.com)
+
+Manual exploration in **Postman**, then automation with Playwright's `request` fixture (no browser needed).
+
+### What was tested
+- All 14 API checks from the course notes (happy paths, wrong methods, missing parameters, invalid user)
+- Full CRUD lifecycle: create → read → update → delete → confirm gone
+- Authentication: update with the wrong password is blocked
+- Negative tests: duplicate email, invalid email format, missing vs empty field, wrong data type
+
+### Key finding
+This API returns **HTTP 200 for almost everything**, including errors and `201 Created`.
+The real result is only in the JSON body's `responseCode`, so the tests always check **both**.
+
+### Bugs found
+1. HTTP status is 200 even when `responseCode` is 400/404/405/201
+2. `createAccount` accepts an invalid email (e.g. `not-an-email`)
+3. `createAccount` accepts an empty `name`
+4. `createAccount` accepts letters in `birth_year` and stores them
+
+### Run the API tests
+```
+npx playwright test tests/api.spec.ts --project=chromium
+```
+Result: **13 passed**. Two tests use `test.fail()` to document known bugs; they will turn red if the site fixes them.
+
+Requires `AE_EMAIL` and `AE_PASSWORD` in `.env` (see `.env.example`).
